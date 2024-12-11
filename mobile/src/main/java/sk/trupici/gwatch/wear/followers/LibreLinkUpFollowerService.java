@@ -267,7 +267,7 @@ public class LibreLinkUpFollowerService extends FollowerService {
 
             request = createRequestBuilder()
                     .addHeader("Authorization", "Bearer " + authResult.token)
-                    .addHeader("AccountId", authResult.accountId)
+                    .addHeader("Account-Id", authResult.accountId)
                     .url(url)
                     .build();
         } catch (Exception e) {
@@ -317,7 +317,7 @@ public class LibreLinkUpFollowerService extends FollowerService {
 
             request = createRequestBuilder()
                     .addHeader("Authorization", "Bearer " + authResult.token)
-                    .addHeader("AccountId", authResult.accountId)
+                    .addHeader("Account-Id", authResult.accountId)
                     .url(url)
                     .build();
         } catch (Exception e) {
