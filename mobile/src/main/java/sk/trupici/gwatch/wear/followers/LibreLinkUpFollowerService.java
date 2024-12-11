@@ -28,10 +28,14 @@ import org.json.JSONArray;
 import org.json.JSONException;
 import org.json.JSONObject;
 
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.text.ParseException;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Date;
+import java.util.HexFormat;
 import java.util.List;
 import java.util.Locale;
 
@@ -77,7 +81,8 @@ public class LibreLinkUpFollowerService extends FollowerService {
 
     private static long sampleToRequestDelay = DEF_LLU_SAMPLE_LATENCY_MS;
     private static String serverUrl;
-    private static String token;
+    private static AuthResult authResult;
+
     private static String connectionId;
 
     public LibreLinkUpFollowerService(@NonNull Context context, @NonNull WorkerParameters workerParams) {
@@ -87,7 +92,7 @@ public class LibreLinkUpFollowerService extends FollowerService {
     protected static void reset() {
         FollowerService.reset();
         connectionId = null;
-        token = null;
+        authResult = null;
         serverUrl = null;
         sampleToRequestDelay = PreferenceUtils.getStringValueAsInt(GWatchApplication.getAppContext(), PREF_LLU_REQUEST_LATENCY, DEF_LLU_SAMPLE_LATENCY_MS) * 1000L;
     }
@@ -130,10 +135,14 @@ public class LibreLinkUpFollowerService extends FollowerService {
 
     @Override
     protected List<GlucosePacket> getServerValues(Context context) {
-        if (token == null) {
-            token = authenticate(context);
+        if (authResult == null) {
+            Log.i(GWatchApplication.LOG_TAG, "PR CHANGES - authResult is null, authenticate!");
+            authResult = authenticate(context);
+
+            Log.i(GWatchApplication.LOG_TAG, "PR CHANGES - Return authenticate: " + authResult.token + " ;accountId: " + authResult.accountId);
         }
-        if (token != null) {
+        if (authResult != null) {
+            Log.i(GWatchApplication.LOG_TAG, "PR CHANGES - Authentication is ready: " + authResult.token + " ;accountId: " + authResult.accountId);
             if (connectionId == null) {
                 connectionId = getConnectionId(context);
             }
@@ -154,6 +163,29 @@ public class LibreLinkUpFollowerService extends FollowerService {
         return SRC_LABEL;
     }
 
+    private static class AuthResult {
+        public final String token;
+        public final String accountId;
+
+        public AuthResult(String token, String accountId) {
+            MessageDigest md = null;
+            try {
+                md = MessageDigest.getInstance("SHA-256");
+            } catch (NoSuchAlgorithmException e) {
+                throw new RuntimeException(e);
+            }
+            byte[] digest = md.digest(accountId.getBytes(StandardCharsets.UTF_8));
+
+            StringBuilder sb = new StringBuilder();
+            for (byte b : digest) {
+                sb.append(String.format("%02x", b));
+            }
+
+            this.token = token;
+            this.accountId = sb.toString();
+        }
+    }
+
     private Request.Builder createRequestBuilder() {
         return new Request.Builder()
                 .addHeader("User-Agent", USER_AGENT)
@@ -164,7 +196,7 @@ public class LibreLinkUpFollowerService extends FollowerService {
                 ;
     }
 
-    private String authenticate(Context context) {
+    private AuthResult authenticate(Context context) {
         Request request;
         try {
             String url = getServerUrl() + "/auth/login";
@@ -194,15 +226,17 @@ public class LibreLinkUpFollowerService extends FollowerService {
             if (response.isSuccessful()) {
                 String receivedData = getResponseBodyAsString(response);
                 Log.i(GWatchApplication.LOG_TAG, "LibreLinkUp data received: " + receivedData);
-                String token = extractToken(receivedData);
-                if (token == null) {
+                AuthResult authResult = extractToken(receivedData);
+                if (authResult == null) {
+                    Log.i(GWatchApplication.LOG_TAG, "PR CHANGES - authResult is null in authenticate()");
                     if (parseRedirect(receivedData)) {
+                        Log.i(GWatchApplication.LOG_TAG, "PR CHANGES - authResult is null in authenticate(), parseRedirect ok");
                         return authenticate(context);
                     }
                 }
-                if (token != null) {
+                if (authResult != null) {
                     UiUtils.showMessage(context, context.getString(R.string.status_ok));
-                    return token;
+                    return authResult;
                 }
                 Log.e(LOG_TAG, getClass().getSimpleName() + " failed");
                 UiUtils.showMessage(context, context.getString(R.string.status_failed));
@@ -229,8 +263,11 @@ public class LibreLinkUpFollowerService extends FollowerService {
 
             UiUtils.showMessage(context, context.getString(R.string.follower_session_request, SRC_LABEL));
 
+            Log.i(GWatchApplication.LOG_TAG, "PR CHANGES - get connection id using new AccountId header: " + authResult.accountId);
+
             request = createRequestBuilder()
-                    .addHeader("Authorization", "Bearer " + token)
+                    .addHeader("Authorization", "Bearer " + authResult.token)
+                    .addHeader("AccountId", authResult.accountId)
                     .url(url)
                     .build();
         } catch (Exception e) {
@@ -276,8 +313,11 @@ public class LibreLinkUpFollowerService extends FollowerService {
 
             UiUtils.showMessage(context, context.getString(R.string.follower_data_request, SRC_LABEL));
 
+            Log.i(GWatchApplication.LOG_TAG, "PR CHANGES - get Bg Data using new AccountId header: " + authResult.accountId);
+
             request = createRequestBuilder()
-                    .addHeader("Authorization", "Bearer " + token)
+                    .addHeader("Authorization", "Bearer " + authResult.token)
+                    .addHeader("AccountId", authResult.accountId)
                     .url(url)
                     .build();
         } catch (Exception e) {
@@ -418,19 +458,23 @@ public class LibreLinkUpFollowerService extends FollowerService {
         return serverUrl != null ? serverUrl : LLU_SERVER_URL;
     }
 
-    private String extractToken(String rsp) {
+    private AuthResult extractToken(String rsp) {
         try {
             if (rsp != null && rsp.length() > 0) {
                 JSONObject obj = new JSONObject(rsp);
                 JSONObject data = obj.optJSONObject("data");
                 if (data != null) {
                     JSONObject authTicket = data.optJSONObject("authTicket");
-                    if (authTicket != null) {
+                    JSONObject user = data.optJSONObject("user");
+                    if (authTicket != null && user != null) {
                         String token = authTicket.optString("token");
+                        String accountId = user.optString("id");
                         if (BuildConfig.DEBUG) {
                             Log.i(LOG_TAG, "Auth token received: " + token);
+                            Log.i(LOG_TAG, "Account id received: " + accountId);
                         }
-                        return token;
+
+                        return new AuthResult(token, accountId);
                     }
                 }
             }
