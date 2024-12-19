@@ -136,13 +136,9 @@ public class LibreLinkUpFollowerService extends FollowerService {
     @Override
     protected List<GlucosePacket> getServerValues(Context context) {
         if (authResult == null) {
-            Log.i(GWatchApplication.LOG_TAG, "PR CHANGES - authResult is null, authenticate!");
             authResult = authenticate(context);
-
-            Log.i(GWatchApplication.LOG_TAG, "PR CHANGES - Return authenticate: " + authResult.token + " ;accountId: " + authResult.accountId);
         }
         if (authResult != null) {
-            Log.i(GWatchApplication.LOG_TAG, "PR CHANGES - Authentication is ready: " + authResult.token + " ;accountId: " + authResult.accountId);
             if (connectionId == null) {
                 connectionId = getConnectionId(context);
             }
@@ -190,7 +186,7 @@ public class LibreLinkUpFollowerService extends FollowerService {
         return new Request.Builder()
                 .addHeader("User-Agent", USER_AGENT)
                 .addHeader("product", "llu.ios")
-                .addHeader("version", "4.7.0")
+                .addHeader("version", "4.12.0")
                 .addHeader("Accept", "application/json")
                 .addHeader("Pragma", "no-cache")
                 ;
@@ -228,9 +224,7 @@ public class LibreLinkUpFollowerService extends FollowerService {
                 Log.i(GWatchApplication.LOG_TAG, "LibreLinkUp data received: " + receivedData);
                 AuthResult authResult = extractToken(receivedData);
                 if (authResult == null) {
-                    Log.i(GWatchApplication.LOG_TAG, "PR CHANGES - authResult is null in authenticate()");
                     if (parseRedirect(receivedData)) {
-                        Log.i(GWatchApplication.LOG_TAG, "PR CHANGES - authResult is null in authenticate(), parseRedirect ok");
                         return authenticate(context);
                     }
                 }
@@ -262,8 +256,6 @@ public class LibreLinkUpFollowerService extends FollowerService {
             String url = getServerUrl() + "/llu/connections";
 
             UiUtils.showMessage(context, context.getString(R.string.follower_session_request, SRC_LABEL));
-
-            Log.i(GWatchApplication.LOG_TAG, "PR CHANGES - get connection id using new AccountId header: " + authResult.accountId);
 
             request = createRequestBuilder()
                     .addHeader("Authorization", "Bearer " + authResult.token)
@@ -312,8 +304,6 @@ public class LibreLinkUpFollowerService extends FollowerService {
             String url = getServerUrl() + "/llu/connections/" + connectionId + "/graph";
 
             UiUtils.showMessage(context, context.getString(R.string.follower_data_request, SRC_LABEL));
-
-            Log.i(GWatchApplication.LOG_TAG, "PR CHANGES - get Bg Data using new AccountId header: " + authResult.accountId);
 
             request = createRequestBuilder()
                     .addHeader("Authorization", "Bearer " + authResult.token)
